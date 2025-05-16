@@ -1,4 +1,6 @@
-#Helper function for imputation method proposed by Zhou et al.
+#the imputation method proposed by Zhou et al.
+
+
 .imputation=function(Y,Z,formulaa){
   n=ncol(Y)
   m=nrow(Y)
@@ -10,9 +12,12 @@
   Z<-as.data.frame(Z)
   if (any(Y == 0)) {
     N <- colSums(Y)
+    
     if (adaptive) {
       logN <- log(N)
-      tmp <- lm(as.formula(paste0("logN", formulaa)),Z)
+      tmp <- lm(as.formula(paste0("logN", formulaa)),
+                Z)
+      
       corr.pval <- coef(summary(tmp))[-1, "Pr(>|t|)"]
       if (any(corr.pval <= corr.cut)) {
         imputation <- TRUE
@@ -29,6 +34,7 @@
       Y <- Y + 0.5
     }
   }
+  
   return(as.matrix(Y))
 }
 
@@ -44,6 +50,7 @@
   theta = lmd/standarad_sigma
   gamma[abs(r) > theta] = r[abs(r) > theta]
   return(list(gamma=gamma, ress = r))
+  
 }
 
 
@@ -53,54 +60,56 @@
 
 # Helper function for tuning parameter selection
 
-.PODAFUNnew = function(y_poda,omega.i,standarad_sigma1,lmd,ttime=300){
+.PODAFUNnew = function(y_poda,omega.i,standarad_sigma1,lmd){
   m=length(y_poda)
-  gamma.i<-matrix(0,m,2)
-
-  ################ the first iteration ###############
-  test_x_1<-.hardPODA(NULL,y_poda,standarad_sigma1,lmd) 
+  gamma.j<-matrix(0,m,2)
+  
+  ######## the first iteration #########
+  test_x_1<-.hardPODA(NULL,y_poda,standarad_sigma1,lmd) #hard
   mean.alpha.est<-median( -(omega.i[which(test_x_1$gamma==0)]))
   if(is.na(mean.alpha.est)){
-    return(c("nope"))
+    return(c("fail"))
   }
   y_poda.new<-y_poda+mean.alpha.est/(standarad_sigma1)
   test_x_1.new<-.hardPODA(NULL,y_poda.new,standarad_sigma1,lmd)
-  gamma.i[,1]<-test_x_1.new$gamma
+  gamma.j[,1]<-test_x_1.new$gamma
   
   
-  ################ the second iteration ###############
+  ######## the second iteration #########
   
   mean.alpha.est<-median( -(omega.i[which(test_x_1.new$gamma==0)]))
   if(is.na(mean.alpha.est)){
-    return(c("nope"))
+    return(c("fail"))
   }
   y_poda.new<-y_poda+mean.alpha.est/(standarad_sigma1)
   test_x_1.new<-.hardPODA(NULL,y_poda.new,standarad_sigma1,lmd)
-  gamma.i[,2]<-test_x_1.new$gamma
+  gamma.j[,2]<-test_x_1.new$gamma
   
   
-  ################ the repeated iteration ###############
+  ############ iterative loop ############
+  
+  
   Nind.tmp.len = list()
+  ttime=300
   diff=rep(0,ttime)
   for(i in 1:ttime){
-    
     if(length(which(test_x_1.new$gamma==0))==0){
-      return(c("nope"))
+      return(c("fail"))
     }else{
-      gamma.i[,1] <-gamma.i[,2]
+      gamma.j[,1] <-gamma.j[,2]
       mean.alpha.est<-median( -(omega.i[which(test_x_1$gamma==0)]))
       if(is.na(mean.alpha.est)){
-        return(c("nope"))
+        return(c("fail"))
       }
     }
     y_poda.new<-y_poda+mean.alpha.est/(standarad_sigma1)
     test_x_1.new<-.hardPODA(NULL,y_poda.new,standarad_sigma1,lmd)
-    gamma.i[,2]<-test_x_1.new$gamma
-    if(norm(as.matrix(gamma.i[,2]-gamma.i[,1],type="I"))<1e-5){
+    gamma.j[,2]<-test_x_1.new$gamma
+    if(norm(as.matrix(gamma.j[,2]-gamma.j[,1],type="I"))<1e-5){
       break
     }
   }
-  if(norm(as.matrix(gamma.i[,2]-gamma.i[,1],type="I"))>1e-5){
+  if(norm(as.matrix(gamma.j[,2]-gamma.j[,1],type="I"))>1e-5){
     print("unconvergence")
   }
   ReList=list(gamma=test_x_1.new$gamma,ress=y_poda.new)
@@ -115,19 +124,15 @@
 .PODAlmdSelection = function(y_poda,omega.i,standarad_sigma1){
   method1="hard"
   m=length(y_poda)
-  gamma.i<-matrix(0,m,2)
-  
+  ########PODA find outlier#########
   r = 1
   N = length(y_poda)
   ress = NULL
   gammas = NULL
   betaInit = NULL
-  
-
   lambdas = seq(ceiling(norm(matrix(y_poda, N, 1), "I")/1),
                 0.1, by = -0.01)
   lambdas_discard=NULL
-  
   for (sigma in lambdas) {  
     result = .PODAFUNnew(y_poda,omega.i,(standarad_sigma1),sigma)
     if(class(result)!="list"){
@@ -140,8 +145,6 @@
   if(length(lambdas_discard)>0){
     lambdas=lambdas[-which(lambdas%in%lambdas_discard)]
   }
-  
-  
   DF = colSums(abs(gammas) > 1e-05) 
   sigmaSqEsts = colSums(((y_poda) %*% matrix(rep(1, ncol(gammas)), 
                                              1, ncol(gammas)) - gammas)^2)/(length(y_poda) - DF)
@@ -158,7 +161,6 @@
   resOpt.scale = resOpt/tau
   p = 2 * pnorm(-abs(resOpt.scale))
   out=lmd
-  
   return(out)
 }
 
@@ -172,21 +174,22 @@
 
 
 # Feature/taxa selection function
-.PODAFeatureSelection = function(y_poda,omega.i,standarad_sigma1,lmd,ttime=50){
+
+.PODAFeatureSelection = function(y_poda,omega.i,standarad_sigma1,lmd){
   m=length(y_poda)
-  gamma.i<-matrix(0,m,2)
+  gamma.j<-matrix(0,m,2)
   
-  ########PODA find outlier#########
+  ######## the first iteration #########
   test_x_1<-.hardPODA(NULL,y_poda,standarad_sigma1,lmd) #hard
   mean.alpha.est<-median( -(omega.i[which(test_x_1$gamma==0)]))
   
   
   y_poda.new<-y_poda+mean.alpha.est/(standarad_sigma1)
   test_x_1.new<-.hardPODA(NULL,y_poda.new,standarad_sigma1,lmd)
-  gamma.i[,1]<-test_x_1.new$gamma
+  gamma.j[,1]<-test_x_1.new$gamma
   
   
-  #######################################
+  ######## the second iteration #########
   
   if(length(which(test_x_1.new$gamma==0))==0){
     return(NULL)
@@ -196,27 +199,26 @@
   }
   y_poda.new<-y_poda+mean.alpha.est/(standarad_sigma1)
   test_x_1.new<-.hardPODA(NULL,y_poda.new,standarad_sigma1,lmd)
-  gamma.i[,2]<-test_x_1.new$gamma
+  gamma.j[,2]<-test_x_1.new$gamma
   
-  ####################################
+  ############ iterative loop ############
   
   
   Nind.tmp.len = list()
-  diff=rep(0,ttime)
-  for(i in 1:ttime){
+  for(i in 1:50){
     if(length(which(test_x_1.new$gamma==0))==0){
       return(NULL)
       break
     }else{
-      gamma.i[,1] <-gamma.i[,2]
+      gamma.j[,1] <-gamma.j[,2]
       mean.alpha.est<-median( -(omega.i[which(test_x_1.new$gamma==0)]))
     }
     y_poda.new<-y_poda+mean.alpha.est/(standarad_sigma1)
     test_x_1.new<-.hardPODA(NULL,y_poda.new,standarad_sigma1,lmd)
-    gamma.i[,2]<-test_x_1.new$gamma
+    gamma.j[,2]<-test_x_1.new$gamma
+    
     Nind.tmp.len[[i]]=which(test_x_1.new$gamma!=0)
-    diff[i]=norm(gamma.i[,2]-gamma.i[,1],type="2")
-    if(norm(as.matrix(gamma.i[,2]-gamma.i[,1],type="I"))<1e-5){
+    if(norm(as.matrix(gamma.j[,2]-gamma.j[,1],type="I"))<1e-5){
       out=which(test_x_1.new$gamma!=0)
       break
     }
@@ -235,8 +237,8 @@
 # Main function for PoDA
 # @param Y  matrix; observed abundance matrix. Row: taxa; column: samples. NAs are not expected in observed abundance matrix.
 # @param u  vector; the phenotype of interest.
-# @param confun matrix; the other phenotypes to be adjusted.
-# @param rep_time  a positive integer; the number of repeated information splitting 
+# @param confoun matrix; the other phenotypes to be adjusted.
+# @param rep_time  a positive integer; the number of repeated information splitting (rep_time > 1)
 # @param fdrnomial a real value between 0 and 1; the nominal level of FDR control
 # @param fdrmethod character; p-value adjusting approach. 
 # @param lib_cut a non-negative real value; samples with less than lib.cut read counts are excluded.
@@ -252,7 +254,7 @@
 
 
 
-PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05,fdrmethod="BH",lib_cut=1000, 
+PODA = function( Y = Y, u = u, confoun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05,fdrmethod="BH",lib_cut=1000, 
                  pre_cut=0.2,nCore=9){
   ##################################################################
   ####################### preparation ##############################
@@ -262,6 +264,9 @@ PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05
   rej_ind<-NULL
   sample_cut=lib_cut
   original.name=rownames(Y)
+
+  
+  
   n=ncol(Y) 
   m=nrow(Y)
   
@@ -270,7 +275,7 @@ PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05
   ##################################################################
   rownames(Y)=paste("taxon",1:m)
   ############# sample filtration ###############
-  if(is.null(confun)){
+  if(is.null(confoun)){
     sample_fil = which(colSums(Y)>=sample_cut)
     Y=Y[,sample_fil]
     u=u[sample_fil]
@@ -279,14 +284,14 @@ PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05
     formula="u"
     formulaa="~u"
   }else{
-    confun=as.matrix(confun)
+    confoun=as.matrix(confoun)
     sample_fil = which(colSums(Y)>=sample_cut)
     Y=Y[,sample_fil]
-    confun=as.matrix(confun[sample_fil,])
-    colnames(confun)=paste0("z",1:ncol(confun))
+    confoun=as.matrix(confoun[sample_fil,])
+    colnames(confoun)=paste0("z",1:ncol(confoun))
     u=u[sample_fil]
-    Z=cbind(u,confun)
-    colnames(Z)=c("u",paste0("z",1:ncol(confun)))
+    Z=cbind(u,confoun)
+    colnames(Z)=c("u",paste0("z",1:ncol(confoun)))
     formula=paste(colnames(Z), collapse = "+")
     formulaa=paste("~",formula)
   }
@@ -299,43 +304,60 @@ PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05
   
   keepOTUs = which(prevalence> pre_cut)
   Y = Y[keepOTUs,]
-
+  
+  
+  
   n=ncol(Y) 
   m=nrow(Y) 
   retain_index=as.numeric(gsub("taxon","",rownames(Y)))
   retain_name=original.name[retain_index]
 
+
+
+  
   ########## imputation ###########
   x_implement<-.imputation(Y,Z,formulaa)
   ####### clr transformation #########
-  ws<-t(t(log(x_implement))-rowMeans(t(log(x_implement))))
-
-  ######## variance estimation #########
-  C<-cbind(matrix(1,nrow=n),confun)
+  wi<-t(t(log(x_implement))-rowMeans(t(log(x_implement))))
+  
+  
+  ##################################################################
+  ###################### variance estimation #######################
+  ##################################################################  
+  
+  C<-cbind(matrix(1,nrow=n),confoun)
   X1<-cbind(u,C)
-  beta_hat<-ws%*%X1%*%solve(t(X1)%*%X1)  
-  epsilon<-ws-beta_hat%*%t(X1)
+  beta_hat<-wi%*%X1%*%solve(t(X1)%*%X1)  
+  epsilon<-wi-beta_hat%*%t(X1)
   p<-dim(Z)[2]
   Sigma_hat<-(1/(n-p-1))*diag(epsilon%*%t(epsilon))
   standarad_sigma1<-sqrt(Sigma_hat) 
   sigma1<-standarad_sigma1**2
   std.sigma = standarad_sigma1
-
+  
+  
+  
+  
+  
   ##################################################################
   ################### project the confounder #######################
   ################################################################## 
   
   H0<-C%*%solve(t(C)%*%C)%*%t(C)
-  ws.center<-(diag(n)-H0)%*%t(ws)
-  us.center<-(diag(n)-H0)%*%as.matrix(u)
-
+  wi.center<-(diag(n)-H0)%*%t(wi)
+  ui.center<-(diag(n)-H0)%*%as.matrix(u)
+  
+  
+  
   ##################################################################
   ########################## choose lambda #########################
   ################################################################## 
-  numerator<-t(ws.center)%*%us.center
-  dominator<-sum(us.center**2)
+  numerator<-t(wi.center)%*%ui.center
+  dominator<-sum(ui.center**2)
   omega.i<-numerator/dominator    
+  
   y_poda<-(as.matrix(omega.i)+median( -omega.i))/(standarad_sigma1) 
+  
   lmd = .PODAlmdSelection( y_poda,omega.i,standarad_sigma1 )
 
   
@@ -352,13 +374,13 @@ PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05
     ind_result=rep(3,m)
     
     x_implement<-.imputation(Y,Z,formulaa)
-    ######## clr transformation ##########
-    ws<-t(t(log(x_implement))-rowMeans(t(log(x_implement))))
-    ######## variance estimation #########
-    C<-cbind(matrix(1,nrow=n),confun)   
+    ########clr transformation##########
+    wi<-t(t(log(x_implement))-rowMeans(t(log(x_implement))))
+    ########Correction for heteroskedasticity##########
+    C<-cbind(matrix(1,nrow=n),confoun)   
     X1<-cbind(u,C)
-    beta_hat<-ws%*%X1%*%solve(t(X1)%*%X1)
-    epsilon<-ws-beta_hat%*%t(X1)
+    beta_hat<-wi%*%X1%*%solve(t(X1)%*%X1)
+    epsilon<-wi-beta_hat%*%t(X1)
     p<-dim(Z)[2]
     Sigma_hatt<-(1/(n-p-1))*(epsilon%*%t(epsilon))
     Sigma_hat<-(1/(n-p-1))*diag(epsilon%*%t(epsilon))
@@ -367,72 +389,88 @@ PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05
     std.sigma = standarad_sigma1
     
     ############ information splitting ############
-    ws_f = ws
-    ws_g = ws
+    wi_f = wi
+    wi_g = wi
     
     set.seed(flag*100)
     all_fission_z <- t(rmvnorm(n, mean = rep(0, m), sigma = Sigma_hatt))
-    ws_f <- ws_f + tau * all_fission_z
-    ws_g <- ws_g - (1 / tau) * all_fission_z
+    wi_f <- wi_f + tau * all_fission_z
+    wi_g <- wi_g - (1 / tau) * all_fission_z
 
     ######## project the confounder #########
     H0<-C%*%solve(t(C)%*%C)%*%t(C)
-    ws.center_f<-(diag(n)-H0)%*%t(ws_f)
-    ws.center_g<-(diag(n)-H0)%*%t(ws_g)
-    us.center<-(diag(n)-H0)%*%as.matrix(u)
+    wi.center_f<-(diag(n)-H0)%*%t(wi_f)
+    wi.center_g<-(diag(n)-H0)%*%t(wi_g)
+    ui.center<-(diag(n)-H0)%*%as.matrix(u)
     
-    ######## new variance estimation ##########
-    beta_hat_g<-ws_g%*%X1%*%solve(t(X1)%*%X1)
-    epsilon_g<-ws_g-beta_hat_g%*%t(X1)
+    
+    ######## variance estimation ##########
+    beta_hat_g<-wi_g%*%X1%*%solve(t(X1)%*%X1)
+    epsilon_g<-wi_g-beta_hat_g%*%t(X1)
     p<-dim(Z)[2]
     Sigma_hat_g<-(1/(n-p-1))*diag(epsilon_g%*%t(epsilon_g))
     standarad_sigma1_g<-sqrt(Sigma_hat_g)
     sigma1_g<-standarad_sigma1_g**2
     std.sigma_g = standarad_sigma1_g
+    
+    
 
-    ############ taxa selection ##############
-    ws.center = ws.center_f
+    ######## taxon selection ##########
+    wi.center = wi.center_f
     standarad_sigma1_f = sqrt(1+tau**2) * standarad_sigma1 
-    Ys_tidle<-ws.center
-    kappa<-c(t(us.center)%*%(diag(n)-H0)%*%us.center/(sum(us.center**2))**2)
-    numerator<-t(ws.center)%*%us.center
-    dominator<-sum(us.center**2)
+    Ys_tidle<-wi.center
+    kappa<-c(t(ui.center)%*%(diag(n)-H0)%*%ui.center/(sum(ui.center**2))**2)
+    numerator<-t(wi.center)%*%ui.center
+    dominator<-sum(ui.center**2)
     omega.i<-numerator/dominator   
     y_poda<-(as.matrix(omega.i)+median( -omega.i))/(standarad_sigma1)
     tryselection <- try({
       Nind <- .PODAFeatureSelection(y_poda, omega.i, standarad_sigma1, lmd)
     }, silent = TRUE)
+
     if (inherits(tryselection, "try-error")) {
       return(NULL)
     }
-    ws.center = ws.center_g
+  
+
+    wi.center = wi.center_g
     standarad_sigma1 = standarad_sigma1_g 
     sigma1=standarad_sigma1**2
     
-    ############ testing for selected taxa ##############
+    
     if(length(Nind)==0){
       Nind=NULL 
       pp_kp=rep(0,m)
     }else{
-      alpha_bar = -(sum(c(t(us.center)%*%ws.center[,-Nind])/sigma1[-Nind]))/(sum(c(t(us.center)%*%us.center)/sigma1[-Nind])) 
-      TEST = c(t(us.center)%*%ws.center[,Nind])/c(t(us.center)%*%us.center)+alpha_bar
-      TEST_var =  ((standarad_sigma1[Nind])**2/c(t(us.center)%*%us.center))
+      alpha_bar = -(sum(c(t(ui.center)%*%wi.center[,-Nind])/sigma1[-Nind]))/(sum(c(t(ui.center)%*%ui.center)/sigma1[-Nind])) 
+      TEST = c(t(ui.center)%*%wi.center[,Nind])/c(t(ui.center)%*%ui.center)+alpha_bar
+      
+      TEST_var =  ((standarad_sigma1[Nind])**2/c(t(ui.center)%*%ui.center))
       pp_kp<-2*pnorm(-abs(TEST/sqrt(TEST_var))) 
       p.adj_kp<-p.adjust(pp_kp,fdrmethod) 
+      
       ind_result[Nind]=pp_kp 
       ind_result[Nind[which(p.adj_kp<=fdrnomial)]]=1+ind_result[Nind[which(p.adj_kp<=fdrnomial)]] 
     }
+    
     ind_result=c(length(Nind),ind_result)
+    
     
     return(ind_result)
   }
   
   
+  
+  
+  
   ##################################################################
   ########################## aggregation ###########################
   ##################################################################
+  
+  
   stopCluster(cl)
   result=as.matrix(result[,which(result[1,]!=0)]) 
+  
   if(length(result[1,])==0){
     rej=NULL
     return(list(rej=NULL,rej_freq=NULL,rej_index=NULL,all_freq=NULL))
@@ -442,7 +480,6 @@ PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05
     Nind.mat[(which(result[-1,]>=1&result[-1,]<2.5))]=1 
     pp.value[which( Nind.mat==1)]=pp.value[which( Nind.mat==1)]-1 
     len.pval = apply(pp.value,2,function(x){length(which(x<=(1-lmdpi)))}) 
-    qq.value = pp.value 
     testfun=function(x){
       x[which(x<2.5)] = p.adjust(x[which(x<2.5)],fdrmethod)
       return(x)
@@ -468,13 +505,8 @@ PODA = function( Y = Y, u = u, confun = NULL ,rep_time=50,tau = 1,fdrnomial=0.05
       tmp=min((1/(lmdpi)-mean( (len.pval)/(result[1,]*lmdpi))),1) 
       tmp.ind = sort(which(tmp.sum<=(tmp)*fdrnomial),decreasing=T)[1]
       tmp.sum2 = sort(inclu.rate)[tmp.ind]
-      if(tmp.sum2==0){ 
-        rej = which(inclu.rate>tmp.sum2)
-        rej = as.numeric(gsub('[taxon]',' ',rownames(Y)[rej]))
-      }else{
-        rej = which(inclu.rate>tmp.sum2)
-        rej = as.numeric(gsub('[taxon]',' ',rownames(Y)[rej]))
-      }
+      rej = which(inclu.rate>tmp.sum2)
+      rej = as.numeric(gsub('[taxon]',' ',rownames(Y)[rej]))
     }
     rej_atleast=original.name[as.numeric(gsub('[taxon]',' ',rownames(Y)[Nind]))]
     rej_freq=data.frame(taxon=rej_atleast,frequency=rowSums(choose.matrix)[Nind])
