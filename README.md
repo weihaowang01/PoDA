@@ -1,4 +1,4 @@
-# PoDA: Post-selection differential abundance analysis of microbiome compositional data
+# Post-selection differential abundance analysis of microbiome compositional data
 
 Install and load PoDA
 ``` r
