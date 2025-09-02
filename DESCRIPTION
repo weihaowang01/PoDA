@@ -1,0 +1,11 @@
+Package: PoDA
+Type: Package
+Title: PoDA
+Version: 0.1.0
+Author: Weihao Wang
+Maintainer: The package maintainer <weihaowang@sjtu.edu.cn>
+Description: Post-selection differential abundance analysis of microbiome compositional data
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.1
