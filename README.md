@@ -9,7 +9,7 @@ help(PODA)
 ```
 
 An example
-```
+``` r
 library(PoDA)
 library(mvtnorm)
 library(foreach)
